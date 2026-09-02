@@ -1,0 +1,909 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>24時間スケジュール</title>
+  
+  <!-- アイコン設定 -->
+  <link rel="icon" href="./icon/app-icon.png" type="image/png">
+  <link rel="apple-touch-icon" href="./icon/app-icon.png">
+
+  <style>
+    :root { 
+      --bg-color: #ffffff; 
+      --accent: #00aaff; 
+      --gray-chart: #b0b0b0; 
+      --text-color: #333333;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; touch-action: manipulation; }
+    body { background-color: #222; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
+    
+    .app-container { 
+      width: 100%; max-width: 414px; height: 100%; max-height: 896px; 
+      background: var(--bg-color); display: flex; flex-direction: column; position: relative; overflow: hidden; 
+    }
+
+    /* ヘッダー UI */
+    .header { display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: #fff; border-bottom: 1px solid #f0f0f0; z-index: 10; }
+    .header-left { display: flex; gap: 6px; align-items: center; }
+    .header-icon-btn { background: none; border: none; color: #00aaff; cursor: pointer; font-size: 18px; display: flex; align-items: center; justify-content: center; }
+    .header-icon-btn svg { width: 22px; height: 22px; fill: #00aaff; }
+    
+    .cal-btn-header { background: #f0f8ff; border: 1px solid #00aaff; color: #00aaff; border-radius: 14px; padding: 4px 8px; font-size: 11px; font-weight: bold; cursor: pointer; }
+
+    /* ドラムピッカー */
+    .picker-container { position: relative; width: 130px; height: 60px; overflow: hidden; }
+    .picker-overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; pointer-events: none; background: linear-gradient(to bottom, rgba(255,255,255,0.85) 0%, rgba(255,255,255,0) 35%, rgba(255,255,255,0) 65%, rgba(255,255,255,0.85) 100%); z-index: 2; }
+    .picker-flex { display: flex; justify-content: center; height: 100%; }
+    .picker-col { height: 100%; overflow-y: scroll; scroll-snap-type: y mandatory; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+    .picker-col::-webkit-scrollbar { display: none; }
+    .picker-spacer { height: 20px; flex-shrink: 0; }
+    .picker-item { height: 20px; line-height: 20px; text-align: center; font-size: 12px; color: #777; scroll-snap-align: center; font-weight: bold; }
+    
+    /* Undo/Redo */
+    .header-right { display: flex; gap: 4px; align-items: center; }
+    .action-circle-btn { width: 32px; height: 32px; border-radius: 50%; border: 1.5px solid #00aaff; background: #fff; color: #00aaff; display: flex; flex-direction: column; justify-content: center; align-items: center; font-size: 8px; cursor: pointer; font-weight: bold; }
+    .action-circle-btn svg { width: 13px; height: 13px; fill: #00aaff; }
+
+    /* メモ入力 */
+    .memo-container { padding: 6px 12px; background: #fafafa; border-bottom: 1px solid #eee; }
+    .memo-input { width: 100%; border: 1px solid #e0e0e0; border-radius: 6px; padding: 6px 10px; font-size: 12px; resize: none; background: #fff; }
+
+    /* ビュー */
+    .view-content { flex: 1; overflow-y: auto; display: none; flex-direction: column; background: #fff; position: relative; }
+    .view-content.active { display: flex; }
+
+    /* 円グラフ */
+    .chart-area { position: relative; width: 100%; aspect-ratio: 1/1; display: flex; justify-content: center; align-items: center; margin: 2px 0; user-select: none; }
+    #scheduleChart { width: 96%; height: 96%; touch-action: none; cursor: pointer; }
+    .center-time { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 22px; font-weight: bold; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,0.6); pointer-events: none; }
+
+    /* 右下フローティング */
+    .floating-actions { position: absolute; right: 15px; bottom: 10px; display: flex; flex-direction: column; align-items: center; gap: 8px; z-index: 5; }
+    .fab-main { width: 44px; height: 44px; border-radius: 50%; background: #00aaff; color: #fff; display: flex; justify-content: center; align-items: center; font-size: 26px; cursor: pointer; box-shadow: 0 3px 8px rgba(0,0,0,0.25); }
+
+    /* パレット領域 */
+    .palette-section { padding: 6px 12px; border-top: 1px solid #eee; background: #fafafa; }
+    .palette-title { font-size: 11px; font-weight: bold; color: #666; margin-bottom: 4px; }
+    .palette-scroll { display: flex; overflow-x: auto; gap: 8px; padding-bottom: 6px; }
+    .palette-scroll::-webkit-scrollbar { display: none; }
+    
+    .preset-btn { 
+      min-width: 58px; height: 58px; border-radius: 50%; display: flex; flex-direction: column; 
+      justify-content: center; align-items: center; color: #fff; font-size: 10px; font-weight: bold; 
+      cursor: pointer; background-color: var(--c); border: 2px solid transparent; 
+      text-shadow: 0 1px 2px rgba(0,0,0,0.3); flex-shrink: 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      position: relative;
+    }
+    .preset-btn.selected { border-color: #111; transform: scale(1.1); box-shadow: 0 0 8px rgba(0,0,0,0.4); }
+    .preset-btn .badge { position: absolute; top: -2px; right: -2px; background: #ff9800; color: #fff; border-radius: 50%; width: 14px; height: 14px; font-size: 8px; display: flex; justify-content: center; align-items: center; }
+
+    /* 一覧表示 */
+    .list-section { padding: 12px; border-bottom: 4px solid #f4f5f7; }
+    .section-title { font-size: 14px; font-weight: bold; margin-bottom: 8px; color: #333; display: flex; justify-content: space-between; }
+    .item-card { display: flex; justify-content: space-between; align-items: center; background: #fff; padding: 8px 10px; border-radius: 6px; margin-bottom: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); border-left: 4px solid var(--c); }
+    .item-time { font-weight: bold; font-size: 13px; }
+    .item-name { font-size: 11px; color: #666; }
+    .delete-btn { color: #ff3b30; background: none; border: none; font-size: 14px; cursor: pointer; padding: 4px; }
+
+    /* モーダル */
+    .modal-overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: none; justify-content: center; align-items: center; z-index: 100; }
+    .modal-overlay.active { display: flex; }
+    .modal-content { background: #fff; padding: 16px; border-radius: 12px; width: 88%; max-width: 340px; max-height: 90vh; overflow-y: auto; }
+    .modal-title { font-size: 15px; font-weight: bold; margin-bottom: 12px; text-align: center; }
+    .form-group { margin-bottom: 12px; }
+    .form-group label { display: block; font-size: 11px; color: #666; margin-bottom: 4px; }
+    .form-control { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; }
+    .checkbox-group { display: flex; gap: 12px; margin-top: 8px; flex-wrap: wrap; }
+    .checkbox-group label { display: flex; align-items: center; gap: 4px; font-size: 11px; font-weight: bold; cursor: pointer; }
+    .modal-btns { display: flex; gap: 8px; margin-top: 15px; }
+    .modal-btns button { flex: 1; padding: 10px; border: none; border-radius: 6px; font-size: 13px; font-weight: bold; cursor: pointer; }
+    .btn-cancel { background: #eee; color: #333; }
+    .btn-save { background: #00aaff; color: #fff; }
+    .btn-delete { background: #ff3b30; color: #fff; }
+
+    /* カレンダー画面モーダル */
+    .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; margin-top: 10px; }
+    .cal-header { text-align: center; font-size: 11px; font-weight: bold; padding: 4px 0; color: #666; }
+    .cal-cell { background: #fdfdfd; min-height: 60px; padding: 2px; border-radius: 4px; display: flex; flex-direction: column; cursor: pointer; border: 1px solid #e8e8e8; overflow: hidden; }
+    .cal-cell.today { background: #eef9ff; border-color: #00aaff; }
+    .cal-date { font-size: 11px; font-weight: bold; text-align: right; color: #222; margin-bottom: 2px; }
+    .cal-memo-text { font-size: 8px; font-weight: bold; color: #555; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 2px; }
+    .cal-event-badge { font-size: 7px; color: #fff; padding: 1px 3px; border-radius: 3px; margin-bottom: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: bold; }
+
+    /* ナビゲーション */
+    .bottom-nav { display: flex; justify-content: space-around; align-items: center; height: 54px; background: #fff; border-top: 1px solid #e5e5e5; z-index: 10; }
+    .nav-item { display: flex; flex-direction: column; align-items: center; color: #8e8e93; font-size: 9px; cursor: pointer; flex: 1; }
+    .nav-item svg { width: 22px; height: 22px; fill: currentColor; margin-bottom: 1px; }
+    .nav-item.active { color: #00aaff; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <div class="app-container">
+    
+    <!-- ヘッダー -->
+    <header class="header">
+      <div class="header-left">
+        <button class="header-icon-btn" onclick="openModal('settingsModal')">
+          <svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.06-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.56-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22l-1.92 3.32c-.12.22-.07.49.12.61l2.03 1.58c-.04.3-.06.63-.06.94s.02.64.06.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .43-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.49-.12-.61l-2.03-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
+        </button>
+        <button class="cal-btn-header" onclick="openCalendarModal()">📅 カレンダー</button>
+      </div>
+      
+      <div class="picker-container">
+        <div class="picker-overlay"></div>
+        <div class="picker-flex">
+          <div class="picker-col" id="colYear" onscroll="handlePickerScroll('year')"></div>
+          <div class="picker-col" id="colMonth" onscroll="handlePickerScroll('month')"></div>
+          <div class="picker-col" id="colDay" onscroll="handlePickerScroll('day')"></div>
+        </div>
+      </div>
+
+      <div class="header-right">
+        <button class="action-circle-btn" onclick="undo()" title="元に戻す">
+          <svg viewBox="0 0 24 24"><path d="M12.5 8c-2.65 0-5.05.99-6.9 2.6L2 7v9h9l-3.62-3.62c1.39-1.16 3.16-1.88 5.12-1.88 3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 11.03 17.15 8 12.5 8z"/></svg>
+          戻す
+        </button>
+        <button class="action-circle-btn" onclick="redo()" title="やり直す">
+          <svg viewBox="0 0 24 24"><path d="M18.4 10.6C16.55 8.99 14.15 8 11.5 8c-4.65 0-8.58 3.03-9.96 7.22L3.9 16c1.05-3.19 4.06-5.5 7.6-5.5 1.96 0 3.73.72 5.12 1.88L13 16h9V7l-3.6 3.6z"/></svg>
+          進む
+        </button>
+      </div>
+    </header>
+
+    <div class="memo-container">
+      <textarea id="dailyMemo" class="memo-input" rows="1" placeholder="今日の一言メモ..." onchange="saveMemoWithHistory()"></textarea>
+    </div>
+
+    <!-- 予定（円グラフ）ビュー -->
+    <div id="view-schedule" class="view-content active">
+      <div class="chart-area">
+        <svg id="scheduleChart" viewBox="0 0 400 400"></svg>
+        <div class="center-time" id="centerTimeDisp">--:--</div>
+        <div class="floating-actions">
+          <div class="fab-main" onclick="openModal('addModal', 'daily')">＋</div>
+        </div>
+      </div>
+
+      <div class="palette-section">
+        <div class="palette-title">★ お気に入りイベント（選択してドラッグ追加）</div>
+        <div class="palette-scroll" id="favPaletteContainer"></div>
+      </div>
+      <div class="palette-section" style="border-top:none;">
+        <div class="palette-title">履歴・プリセット</div>
+        <div class="palette-scroll" id="historyPaletteContainer"></div>
+      </div>
+    </div>
+
+    <!-- 一覧ビュー -->
+    <div id="view-list" class="view-content" style="background:#f4f5f7;">
+      <div class="list-section">
+        <div class="section-title">
+          <span>今日の予定</span>
+          <span style="color:#00aaff; cursor:pointer;" onclick="openModal('addModal', 'daily')">＋追加</span>
+        </div>
+        <div id="dailyListContainer"></div>
+      </div>
+      <div class="list-section">
+        <div class="section-title">
+          <span>毎日固定スケジュール</span>
+          <span style="color:#00aaff; cursor:pointer;" onclick="openModal('addModal', 'fixed')">＋追加</span>
+        </div>
+        <div id="fixedListContainer"></div>
+      </div>
+    </div>
+
+    <!-- 設定・バックアップモーダル -->
+    <div class="modal-overlay" id="settingsModal">
+      <div class="modal-content">
+        <div class="modal-title">データバックアップ & 設定</div>
+        <div class="form-group">
+          <label>全データの保存 (JSON)</label>
+          <button class="form-control" style="background:#00aaff; color:#fff; font-weight:bold; cursor:pointer;" onclick="exportAllLocalStorage()">全データをバックアップ (エクスポート)</button>
+        </div>
+        <div class="form-group">
+          <label>全データの復元 (JSON)</label>
+          <button class="form-control" style="background:#f4f4f4; color:#333; font-weight:bold; cursor:pointer;" onclick="importDataTrigger()">データを復元 (インポート)</button>
+          <input type="file" id="importFileInput" accept=".json" style="display:none" onchange="importAllLocalStorage(event)">
+        </div>
+        <div class="modal-btns">
+          <button class="btn-cancel" onclick="closeModal('settingsModal')">閉じる</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- カレンダーモーダル -->
+    <div class="modal-overlay" id="calendarModal">
+      <div class="modal-content" style="width:95%; max-width:380px;">
+        <div class="modal-title" id="calMonthTitle"></div>
+        <div class="calendar-grid" id="calendarGrid"></div>
+        <div class="modal-btns">
+          <button class="btn-cancel" onclick="closeModal('calendarModal')">閉じる</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 予定追加モーダル -->
+    <div class="modal-overlay" id="addModal">
+      <div class="modal-content">
+        <div class="modal-title">予定の追加</div>
+        <input type="hidden" id="modalType">
+        
+        <div class="form-group">
+          <label>イベント名</label>
+          <input type="text" id="modalName" class="form-control">
+        </div>
+
+        <div class="form-group">
+          <label>カラー指定</label>
+          <input type="color" id="modalColor" class="form-control" style="height:36px; padding:2px;" value="#00aaff">
+        </div>
+        
+        <div class="form-group">
+          <label>時間</label>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <input type="time" id="modalStart" class="form-control" value="09:00">
+            <span>〜</span>
+            <input type="time" id="modalEnd" class="form-control" value="10:00">
+          </div>
+        </div>
+
+        <div class="checkbox-group">
+          <label><input type="checkbox" id="modalFav"> ★ お気に入り保存</label>
+          <label><input type="checkbox" id="modalShowCal" checked> 📅 カレンダーに表示する</label>
+        </div>
+
+        <div class="modal-btns">
+          <button class="btn-cancel" onclick="closeModal('addModal')">キャンセル</button>
+          <button class="btn-save" onclick="saveFromModal()">保存</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 詳細・編集モーダル -->
+    <div class="modal-overlay" id="detailModal">
+      <div class="modal-content">
+        <div class="modal-title">予定の詳細・編集</div>
+        <div class="form-group">
+          <label>イベント名</label>
+          <input type="text" id="detailName" class="form-control">
+        </div>
+        <div class="form-group">
+          <label>カラー</label>
+          <input type="color" id="detailColor" class="form-control" style="height:36px; padding:2px;">
+        </div>
+        <div class="form-group">
+          <label>時間帯 (開始 〜 終了)</label>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <input type="time" id="detailStart" class="form-control">
+            <span>〜</span>
+            <input type="time" id="detailEnd" class="form-control">
+          </div>
+        </div>
+        <div class="checkbox-group">
+          <label><input type="checkbox" id="detailFav"> ★ お気に入り保存</label>
+          <label><input type="checkbox" id="detailShowCal"> 📅 カレンダーに表示する</label>
+        </div>
+        <div class="modal-btns">
+          <button class="btn-cancel" onclick="closeModal('detailModal')">キャンセル</button>
+          <button class="btn-delete" onclick="deleteCurrentDetail()">削除</button>
+          <button class="btn-save" onclick="saveDetailEdit()">更新</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ナビゲーション -->
+    <nav class="bottom-nav">
+      <div class="nav-item active" onclick="switchView('view-schedule', this)">
+        <svg viewBox="0 0 24 24"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>
+        <span>予定</span>
+      </div>
+      <div class="nav-item" onclick="switchView('view-list', this)">
+        <svg viewBox="0 0 24 24"><path d="M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z"/></svg>
+        <span>一覧</span>
+      </div>
+    </nav>
+  </div>
+
+  <script>
+    const STORAGE_KEY = 'app24h_v7';
+
+    // 時刻を 15:30 のような形式にフォーマット（24時間超過時は0〜23時に丸める）
+    function formatTimeDisplay(h) {
+      const hour = Math.floor(h) % 24;
+      const min = Math.round((h % 1) * 60);
+      return `${String(hour).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+    }
+
+    // --- データ管理 ---
+    let appData = JSON.parse(localStorage.getItem(STORAGE_KEY)) || {
+      fixed: [ { name: '睡眠', startHour: 23.0, endHour: 6.0, color: '#00aaff', isFav: false, showInCalendar: true } ],
+      favorites: [
+        { name: '勉強', color: '#e91e63', duration: 1 },
+        { name: '風呂はみがき', color: '#9c27b0', duration: 1 }
+      ],
+      history: [],
+      daily: {}
+    };
+
+    let selectedPreset = null;
+    let activeDetailTarget = null;
+    let undoStack = [];
+    let redoStack = [];
+
+    function pushHistory() {
+      undoStack.push(JSON.stringify(appData));
+      if (undoStack.length > 30) undoStack.shift();
+      redoStack = [];
+    }
+
+    function saveData() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(appData));
+    }
+
+    function undo() {
+      if (undoStack.length === 0) return;
+      redoStack.push(JSON.stringify(appData));
+      appData = JSON.parse(undoStack.pop());
+      saveData();
+      updateDateUI();
+    }
+
+    function redo() {
+      if (redoStack.length === 0) return;
+      undoStack.push(JSON.stringify(appData));
+      appData = JSON.parse(redoStack.pop());
+      saveData();
+      updateDateUI();
+    }
+
+    function getDailyData(dateStr) {
+      if (!appData.daily[dateStr]) appData.daily[dateStr] = { memo: "", events: [] };
+      return appData.daily[dateStr];
+    }
+
+    // --- エクスポート/インポート ---
+    function exportAllLocalStorage() {
+      const allStorageData = {};
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        try {
+          allStorageData[key] = JSON.parse(localStorage.getItem(key));
+        } catch(e) {
+          allStorageData[key] = localStorage.getItem(key);
+        }
+      }
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(allStorageData, null, 2));
+      const downloadAnchor = document.createElement('a');
+      downloadAnchor.setAttribute("href", dataStr);
+      downloadAnchor.setAttribute("download", `backup_schedule_${getDateStr(currentDateTime)}.json`);
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+    }
+
+    function importDataTrigger() {
+      document.getElementById('importFileInput').click();
+    }
+
+    function importAllLocalStorage(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function(evt) {
+        try {
+          const importedData = JSON.parse(evt.target.result);
+          if (importedData[STORAGE_KEY]) {
+            Object.keys(importedData).forEach(key => {
+              const val = typeof importedData[key] === 'object' ? JSON.stringify(importedData[key]) : importedData[key];
+              localStorage.setItem(key, val);
+            });
+            appData = JSON.parse(localStorage.getItem(STORAGE_KEY));
+          } else {
+            appData = importedData;
+            saveData();
+          }
+          updateDateUI();
+          alert("全データの復元が完了しました。");
+          closeModal('settingsModal');
+        } catch(err) {
+          alert("ファイル形式が正しいJSONではありません。");
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    // --- 日付＆ピッカー ---
+    const daysArr = ['日', '月', '火', '水', '木', '金', '土'];
+    let currentDateTime = new Date();
+    const ITEM_HEIGHT = 20;
+
+    function buildPickerCol(colId, items) {
+      const col = document.getElementById(colId);
+      col.innerHTML = '<div class="picker-spacer"></div>';
+      items.forEach(val => {
+        const div = document.createElement('div');
+        div.className = 'picker-item';
+        div.textContent = val;
+        col.appendChild(div);
+      });
+      col.innerHTML += '<div class="picker-spacer"></div>';
+    }
+
+    function initPickers() {
+      const currentYear = new Date().getFullYear();
+      let years = [];
+      for (let y = currentYear - 3; y <= currentYear + 3; y++) years.push(y);
+      buildPickerCol('colYear', years);
+
+      let months = [];
+      for (let m = 1; m <= 12; m++) months.push(String(m).padStart(2, '0'));
+      buildPickerCol('colMonth', months);
+
+      updateDayPickerItems();
+    }
+
+    function updateDayPickerItems() {
+      const y = currentDateTime.getFullYear();
+      const m = currentDateTime.getMonth() + 1;
+      const daysInMonth = new Date(y, m, 0).getDate();
+      let days = [];
+      for (let d = 1; d <= daysInMonth; d++) days.push(String(d).padStart(2, '0') + ' ' + daysArr[new Date(y, m-1, d).getDay()]);
+      buildPickerCol('colDay', days);
+    }
+
+    function syncPickersToDate() {
+      const currentYear = new Date().getFullYear();
+      const yearIdx = currentDateTime.getFullYear() - (currentYear - 3);
+      const monthIdx = currentDateTime.getMonth();
+      const dayIdx = currentDateTime.getDate() - 1;
+
+      document.getElementById('colYear').scrollTop = yearIdx * ITEM_HEIGHT;
+      document.getElementById('colMonth').scrollTop = monthIdx * ITEM_HEIGHT;
+      document.getElementById('colDay').scrollTop = dayIdx * ITEM_HEIGHT;
+    }
+
+    function handlePickerScroll(type) {
+      const colMap = { year: 'colYear', month: 'colMonth', day: 'colDay' };
+      const col = document.getElementById(colMap[type]);
+      const idx = Math.round(col.scrollTop / ITEM_HEIGHT);
+
+      const currentYear = new Date().getFullYear();
+      let y = currentDateTime.getFullYear();
+      let m = currentDateTime.getMonth();
+      let d = currentDateTime.getDate();
+
+      if (type === 'year') y = (currentYear - 3) + idx;
+      if (type === 'month') m = idx;
+      if (type === 'day') d = idx + 1;
+
+      const maxDays = new Date(y, m + 1, 0).getDate();
+      if (d > maxDays) d = maxDays;
+
+      currentDateTime = new Date(y, m, d);
+      updateDateUI();
+    }
+
+    function getDateStr(d) {
+      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    }
+
+    function updateDateUI() {
+      syncPickersToDate();
+      const dateStr = getDateStr(currentDateTime);
+      document.getElementById('dailyMemo').value = getDailyData(dateStr).memo;
+      renderAll();
+    }
+
+    function saveMemoWithHistory() {
+      pushHistory();
+      const dateStr = getDateStr(currentDateTime);
+      getDailyData(dateStr).memo = document.getElementById('dailyMemo').value;
+      saveData();
+    }
+
+    // --- カレンダー モーダル表示 ---
+    function openCalendarModal() {
+      renderCalendarModal();
+      openModal('calendarModal');
+    }
+
+    function renderCalendarModal() {
+      const year = currentDateTime.getFullYear();
+      const month = currentDateTime.getMonth();
+      document.getElementById('calMonthTitle').textContent = `${year}年 ${month + 1}月`;
+      
+      const grid = document.getElementById('calendarGrid');
+      grid.innerHTML = '';
+
+      ['日','月','火','水','木','金','土'].forEach(d => {
+        const el = document.createElement('div'); el.className = 'cal-header'; el.textContent = d;
+        grid.appendChild(el);
+      });
+
+      const firstDay = new Date(year, month, 1).getDay();
+      const daysInMonth = new Date(year, month + 1, 0).getDate();
+      for(let i=0; i<firstDay; i++) grid.appendChild(document.createElement('div'));
+
+      const todayStr = getDateStr(new Date());
+      for(let d=1; d<=daysInMonth; d++) {
+        const cellDate = new Date(year, month, d);
+        const cellDateStr = getDateStr(cellDate);
+        
+        const cell = document.createElement('div');
+        cell.className = 'cal-cell' + (cellDateStr === todayStr ? ' today' : '');
+        cell.onclick = () => { 
+          currentDateTime = cellDate; 
+          updateDateUI(); 
+          closeModal('calendarModal'); 
+        };
+
+        const dNum = document.createElement('div');
+        dNum.className = 'cal-date'; dNum.textContent = d;
+        cell.appendChild(dNum);
+
+        const dayData = appData.daily[cellDateStr];
+        
+        if (dayData && dayData.memo && dayData.memo.trim() !== '') {
+          const memoDiv = document.createElement('div');
+          memoDiv.className = 'cal-memo-text';
+          memoDiv.textContent = dayData.memo;
+          cell.appendChild(memoDiv);
+        }
+
+        let eventsToDisplay = [];
+        appData.fixed.forEach(ev => {
+          if (ev.showInCalendar !== false) eventsToDisplay.push(ev);
+        });
+        if (dayData && dayData.events) {
+          dayData.events.forEach(ev => {
+            if (ev.showInCalendar !== false) eventsToDisplay.push(ev);
+          });
+        }
+
+        eventsToDisplay.forEach(ev => {
+          const badge = document.createElement('div');
+          badge.className = 'cal-event-badge';
+          badge.style.backgroundColor = ev.color;
+          badge.textContent = ev.name;
+          cell.appendChild(badge);
+        });
+
+        grid.appendChild(cell);
+      }
+    }
+
+    // --- 円グラフ & ドラッグ ---
+    const svg = document.getElementById('scheduleChart');
+    const CX = 200, CY = 200, R = 140;
+
+    function getPercent(h) { return h / 24; }
+    function getCoord(p, r = R) {
+      const a = 2 * Math.PI * p - Math.PI / 2;
+      return [CX + r * Math.cos(a), CY + r * Math.sin(a)];
+    }
+
+    function drawWedge(startH, endH, color, label, itemRef, type, index) {
+      if (startH === endH) return;
+      if (startH > endH) {
+        drawWedge(startH, 24, color, label, itemRef, type, index); 
+        drawWedge(0, endH, color, "", itemRef, type, index); 
+        return;
+      }
+      const p1 = getPercent(startH), p2 = getPercent(endH);
+      const [sx, sy] = getCoord(p1), [ex, ey] = getCoord(p2);
+      const large = (p2 - p1) > 0.5 ? 1 : 0;
+      
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('d', `M ${CX} ${CY} L ${sx} ${sy} A ${R} ${R} 0 ${large} 1 ${ex} ${ey} Z`);
+      path.setAttribute('fill', color);
+      
+      if (type !== 'preview') {
+        path.onclick = (e) => {
+          e.stopPropagation();
+          if (!hasDragged) openDetailModal(itemRef, type, index);
+        };
+      }
+
+      svg.appendChild(path);
+
+      if (label && (endH - startH) >= 0.5) {
+        const dur = endH - startH;
+        const durStr = `${Math.floor(dur)}:${Math.round((dur%1)*60).toString().padStart(2,'0')}`;
+        const [lx, ly] = getCoord((p1 + p2) / 2, R * 0.7);
+        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        text.setAttribute('x', lx); text.setAttribute('y', ly); text.setAttribute('fill', '#fff');
+        text.setAttribute('font-size', '10'); text.setAttribute('font-weight', 'bold'); text.setAttribute('text-anchor', 'middle');
+        text.style.pointerEvents = 'none';
+        
+        const tspan1 = document.createElementNS('http://www.w3.org/2000/svg', 'tspan');
+        tspan1.setAttribute('x', lx); tspan1.setAttribute('dy', '-2'); tspan1.textContent = label;
+        const tspan2 = document.createElementNS('http://www.w3.org/2000/svg', 'tspan');
+        tspan2.setAttribute('x', lx); tspan2.setAttribute('dy', '12'); tspan2.textContent = durStr;
+        
+        text.appendChild(tspan1); text.appendChild(tspan2);
+        svg.appendChild(text);
+      }
+    }
+
+    function renderChart() {
+      svg.innerHTML = '';
+      const base = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      base.setAttribute('cx', CX); base.setAttribute('cy', CY); base.setAttribute('r', R); base.setAttribute('fill', 'var(--gray-chart)');
+      svg.appendChild(base);
+
+      const dateStr = getDateStr(currentDateTime);
+      appData.fixed.forEach((item, idx) => drawWedge(item.startHour, item.endHour, item.color, item.name, item, 'fixed', idx));
+      getDailyData(dateStr).events.forEach((item, idx) => drawWedge(item.startHour, item.endHour, item.color, item.name, item, 'daily', idx));
+
+      for (let h = 0; h < 24; h++) {
+        const p = getPercent(h);
+        const [x1, y1] = getCoord(p, R), [x2, y2] = getCoord(p, R + 4);
+        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        line.setAttribute('x1', x1); line.setAttribute('y1', y1); line.setAttribute('x2', x2); line.setAttribute('y2', y2); line.setAttribute('stroke', '#fff');
+        line.style.pointerEvents = 'none';
+        svg.appendChild(line);
+
+        const [tx, ty] = getCoord(p, R + 14);
+        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        text.setAttribute('x', tx); text.setAttribute('y', ty + 3); text.setAttribute('fill', '#666'); text.setAttribute('font-size', '9'); text.setAttribute('text-anchor', 'middle'); text.textContent = h;
+        text.style.pointerEvents = 'none';
+        svg.appendChild(text);
+      }
+
+      const now = new Date();
+      const cp = getPercent(now.getHours() + now.getMinutes() / 60);
+      const [nx, ny] = getCoord(cp, R);
+      const hand = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      hand.setAttribute('x1', CX); hand.setAttribute('y1', CY); hand.setAttribute('x2', nx); hand.setAttribute('y2', ny); hand.setAttribute('stroke', '#fff'); hand.setAttribute('stroke-width', '2');
+      hand.style.pointerEvents = 'none';
+      svg.appendChild(hand);
+      
+      document.getElementById('centerTimeDisp').textContent = formatTimeDisplay(now.getHours() + (now.getMinutes() / 60));
+    }
+
+    let isDragging = false;
+    let hasDragged = false;
+    let dragStartHour = null;
+
+    function getHourFromEvent(e) {
+      const rect = svg.getBoundingClientRect();
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+      const x = clientX - rect.left - rect.width / 2;
+      const y = clientY - rect.top - rect.height / 2;
+      let angle = Math.atan2(y, x) * (180 / Math.PI) + 90;
+      if (angle < 0) angle += 360;
+      let hour = (angle / 360) * 24;
+      return Math.round(hour * 4) / 4;
+    }
+
+    function setupDragEvents() {
+      const handleStart = (e) => {
+        isDragging = true;
+        hasDragged = false;
+        dragStartHour = getHourFromEvent(e);
+      };
+
+      const handleMove = (e) => {
+        if (!isDragging) return;
+        const currentHour = getHourFromEvent(e);
+        if (Math.abs(currentHour - dragStartHour) >= 0.25) {
+          hasDragged = true;
+          renderChart();
+          const color = selectedPreset ? selectedPreset.color : '#00aaff';
+          const label = selectedPreset ? selectedPreset.name : '新規予定';
+          drawWedge(Math.min(dragStartHour, currentHour), Math.max(dragStartHour, currentHour), color, label, null, 'preview', -1);
+        }
+      };
+
+      const handleEnd = (e) => {
+        if (!isDragging) return;
+        isDragging = false;
+        
+        if (hasDragged) {
+          const currentHour = getHourFromEvent(e.changedTouches ? e.changedTouches[0] : e);
+          let sH = Math.min(dragStartHour, currentHour);
+          let eH = Math.max(dragStartHour, currentHour);
+          if (sH !== eH) {
+            pushHistory();
+            const dateStr = getDateStr(currentDateTime);
+            getDailyData(dateStr).events.push({
+              name: selectedPreset ? selectedPreset.name : '新規予定',
+              color: selectedPreset ? selectedPreset.color : '#00aaff',
+              startHour: sH,
+              endHour: eH,
+              isFav: selectedPreset ? (selectedPreset.isFav || false) : false,
+              showInCalendar: true
+            });
+            selectedPreset = null;
+            saveData();
+            renderAll();
+          }
+        }
+      };
+
+      svg.onmousedown = svg.ontouchstart = handleStart;
+      window.onmousemove = window.ontouchmove = handleMove;
+      window.onmouseup = window.ontouchend = handleEnd;
+    }
+
+    function renderPalette() {
+      const favC = document.getElementById('favPaletteContainer');
+      const histC = document.getElementById('historyPaletteContainer');
+      favC.innerHTML = ''; histC.innerHTML = '';
+
+      appData.favorites.forEach(p => favC.appendChild(createPresetButton(p, true)));
+      appData.history.forEach(p => histC.appendChild(createPresetButton(p, false)));
+    }
+
+    function createPresetButton(preset, isFav) {
+      const btn = document.createElement('div');
+      btn.className = 'preset-btn' + (selectedPreset === preset ? ' selected' : '');
+      btn.style.setProperty('--c', preset.color);
+      btn.textContent = preset.name;
+
+      if (isFav) {
+        const badge = document.createElement('div');
+        badge.className = 'badge'; badge.textContent = '★';
+        btn.appendChild(badge);
+      }
+
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        selectedPreset = (selectedPreset === preset) ? null : preset;
+        renderPalette();
+      };
+      return btn;
+    }
+
+    function openDetailModal(item, type, index) {
+      activeDetailTarget = { item, type, index };
+      document.getElementById('detailName').value = item.name;
+      document.getElementById('detailColor').value = item.color || '#00aaff';
+      document.getElementById('detailStart').value = formatTimeDisplay(item.startHour);
+      document.getElementById('detailEnd').value = formatTimeDisplay(item.endHour);
+      document.getElementById('detailFav').checked = item.isFav || false;
+      document.getElementById('detailShowCal').checked = item.showInCalendar !== false;
+      
+      document.getElementById('detailModal').classList.add('active');
+    }
+
+    function saveDetailEdit() {
+      if (!activeDetailTarget) return;
+      pushHistory();
+      const name = document.getElementById('detailName').value || '無題の予定';
+      const color = document.getElementById('detailColor').value;
+      const [shH, shM] = document.getElementById('detailStart').value.split(':').map(Number);
+      const [ehH, ehM] = document.getElementById('detailEnd').value.split(':').map(Number);
+      
+      let startHour = shH + (shM / 60);
+      let endHour = ehH + (ehM / 60);
+      if (endHour <= startHour) endHour += 24;
+      
+      const isFav = document.getElementById('detailFav').checked;
+      const showInCalendar = document.getElementById('detailShowCal').checked;
+      const dateStr = getDateStr(currentDateTime);
+      
+      let targetItem = activeDetailTarget.type === 'daily' 
+        ? getDailyData(dateStr).events[activeDetailTarget.index]
+        : appData.fixed[activeDetailTarget.index];
+        
+      targetItem.name = name;
+      targetItem.color = color;
+      targetItem.startHour = startHour;
+      targetItem.endHour = endHour;
+      targetItem.isFav = isFav;
+      targetItem.showInCalendar = showInCalendar;
+
+      if (isFav && !appData.favorites.some(f => f.name === name)) {
+        appData.favorites.push({ name, color, duration: (endHour - startHour) });
+      }
+
+      saveData();
+      closeModal('detailModal');
+      renderAll();
+    }
+
+    function deleteCurrentDetail() {
+      if (!activeDetailTarget) return;
+      pushHistory();
+      const dateStr = getDateStr(currentDateTime);
+      let arr = activeDetailTarget.type === 'daily' ? getDailyData(dateStr).events : appData.fixed;
+      arr.splice(activeDetailTarget.index, 1);
+      saveData();
+      closeModal('detailModal');
+      renderAll();
+    }
+
+    function renderList(containerId, dataArray, type) {
+      const c = document.getElementById(containerId);
+      c.innerHTML = '';
+      dataArray.forEach((item, index) => {
+        const div = document.createElement('div');
+        div.className = 'item-card'; div.style.setProperty('--c', item.color);
+        // 時刻フォーマット関数を適用し 16.5:00 などを 16:30 へ変換
+        div.innerHTML = `
+          <div>
+            <div class="item-time">${formatTimeDisplay(item.startHour)} 〜 ${formatTimeDisplay(item.endHour)}</div>
+            <div class="item-name">${item.name}</div>
+          </div>
+          <button class="delete-btn" onclick="deleteItem('${type}', ${index})">✕</button>
+        `;
+        c.appendChild(div);
+      });
+    }
+
+    function deleteItem(type, index) {
+      pushHistory();
+      const dateStr = getDateStr(currentDateTime);
+      let arr = type === 'daily' ? getDailyData(dateStr).events : appData.fixed;
+      arr.splice(index, 1);
+      saveData(); renderAll();
+    }
+
+    function renderAll() {
+      renderChart();
+      renderPalette();
+      renderList('dailyListContainer', getDailyData(getDateStr(currentDateTime)).events, 'daily');
+      renderList('fixedListContainer', appData.fixed, 'fixed');
+    }
+
+    function openModal(id, type = 'daily') {
+      document.getElementById('modalType').value = type;
+      if (id === 'addModal') {
+        document.getElementById('modalShowCal').checked = true;
+      }
+      document.getElementById(id).classList.add('active');
+    }
+    function closeModal(id) { document.getElementById(id).classList.remove('active'); }
+
+    function saveFromModal() {
+      pushHistory();
+      const type = document.getElementById('modalType').value;
+      const name = document.getElementById('modalName').value || '無題の予定';
+      const color = document.getElementById('modalColor').value;
+      const [shH, shM] = document.getElementById('modalStart').value.split(':').map(Number);
+      const [ehH, ehM] = document.getElementById('modalEnd').value.split(':').map(Number);
+      
+      let sh = shH + (shM / 60);
+      let eh = ehH + (ehM / 60);
+      if (eh <= sh) eh += 24;
+
+      const isFav = document.getElementById('modalFav').checked;
+      const showInCalendar = document.getElementById('modalShowCal').checked;
+      const newItem = { name, color, startHour: sh, endHour: eh, isFav, showInCalendar };
+      const dateStr = getDateStr(currentDateTime);
+
+      if (type === 'fixed') {
+        appData.fixed.push(newItem);
+      } else {
+        getDailyData(dateStr).events.push(newItem);
+      }
+
+      if (isFav && !appData.favorites.some(f => f.name === name)) {
+        appData.favorites.push({ name, color, duration: (eh - sh) });
+      }
+
+      saveData(); closeModal('addModal'); renderAll();
+    }
+
+    function switchView(viewId, navEl) {
+      document.querySelectorAll('.view-content').forEach(el => el.classList.remove('active'));
+      document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+      document.getElementById(viewId).classList.add('active');
+      navEl.classList.add('active');
+      renderAll();
+    }
+
+    function initUI() {
+      initPickers();
+      setupDragEvents();
+      updateDateUI();
+    }
+
+    initUI();
+  </script>
+</body>
+</html>
