@@ -60,6 +60,11 @@
   <input type="file" id="fileInput" accept="image/*">
 
   <script>
+    // 画面のどこかをトリガー関係なく「1回タップ」したら強制的にファイル選択を開くテストコード
+document.addEventListener('click', () => {
+  fileInput.click();
+});
+
     const fileInput = document.getElementById('fileInput');
     const preview = document.getElementById('preview');
     const placeholder = document.getElementById('placeholder');
