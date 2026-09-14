@@ -16,7 +16,7 @@
       height: 100%;
       background-color: #000000;
       overflow: hidden;
-      touch-action: none;
+      touch-action: none; /* ブラウザ標準の挙動を完全に無効化 */
       display: flex;
       align-items: center;
       justify-content: center;
@@ -41,7 +41,7 @@
       will-change: transform;
     }
     #placeholder {
-      color: #444444;
+      color: #555555;
       font-family: sans-serif;
       font-size: 14px;
       pointer-events: none;
@@ -60,94 +60,99 @@
   <input type="file" id="fileInput" accept="image/*">
 
   <script>
-    // 画面のどこかをトリガー関係なく「1回タップ」したら強制的にファイル選択を開くテストコード
-document.addEventListener('click', () => {
-  fileInput.click();
-});
-
     const fileInput = document.getElementById('fileInput');
     const preview = document.getElementById('preview');
     const placeholder = document.getElementById('placeholder');
     const container = document.getElementById('imageContainer');
 
-    // 拡大・縮小・移動 (Pinch & Pan)
+    // 変数管理
     let scale = 1;
     let pointX = 0;
     let pointY = 0;
-    let startPinchDist = 0;
-    let startScale = 1;
-    let isDragging = false;
     let startX = 0;
     let startY = 0;
+    let startDist = 0;
+    let startScale = 1;
+    let isDragging = false;
     let longPressTimer = null;
 
-    const updateTransform = () => {
-      preview.style.transform = `translate(${pointX}px, ${pointY}px) scale(${scale})`;
+    // 滑らかな描画更新 (requestAnimationFrame)
+    let ticking = false;
+    const requestUpdate = () => {
+      if (!ticking) {
+        requestAnimationFrame(() => {
+          preview.style.transform = `translate3d(${pointX}px, ${pointY}px, 0px) scale(${scale})`;
+          ticking = false;
+        });
+        ticking = true;
+      }
     };
 
-    const getDistance = (touches) => {
-      return Math.hypot(
-        touches[0].clientX - touches[1].clientX,
-        touches[0].clientY - touches[1].clientY
-      );
+    const getDistance = (t1, t2) => {
+      return Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
     };
 
     // タッチ開始
     container.addEventListener('touchstart', (e) => {
+      clearTimeout(longPressTimer);
+
       if (e.touches.length === 1) {
-        // 長押し判定 (500ms判定)
+        // 長押し（0.5秒）でファイル選択
         longPressTimer = setTimeout(() => {
           fileInput.click();
         }, 500);
 
-        isDragging = true;
-        startX = e.touches[0].clientX - pointX;
-        startY = e.touches[0].clientY - pointY;
+        // 拡大時のみパン（ドラッグ）可能にする
+        if (scale > 1) {
+          isDragging = true;
+          startX = e.touches[0].clientX - pointX;
+          startY = e.touches[0].clientY - pointY;
+        }
       } else if (e.touches.length === 2) {
-        clearTimeout(longPressTimer);
+        // ピンチズーム開始
         isDragging = false;
-        startPinchDist = getDistance(e.touches);
+        startDist = getDistance(e.touches[0], e.touches[1]);
         startScale = scale;
       }
     }, { passive: false });
 
-    // タッチ移動 (指が動いたら長押し解除)
+    // タッチ移動
     container.addEventListener('touchmove', (e) => {
       e.preventDefault();
-      clearTimeout(longPressTimer);
+      clearTimeout(longPressTimer); // 移動したら長押しをキャンセル
 
-      if (isDragging && e.touches.length === 1 && scale > 1) {
+      if (e.touches.length === 1 && isDragging && scale > 1) {
         pointX = e.touches[0].clientX - startX;
         pointY = e.touches[0].clientY - startY;
-        updateTransform();
-      } else if (e.touches.length === 2) {
-        const currentDist = getDistance(e.touches);
-        if (startPinchDist > 0) {
-          const newScale = startScale * (currentDist / startPinchDist);
-          scale = Math.min(Math.max(0.8, newScale), 8);
-          updateTransform();
+        requestUpdate();
+      } else if (e.touches.length === 2 && startDist > 0) {
+        const currentDist = getDistance(e.touches[0], e.touches[1]);
+        const newScale = startScale * (currentDist / startDist);
+        // 拡大制限: 1倍〜8倍
+        scale = Math.min(Math.max(1, newScale), 8);
+        
+        // 1倍に戻ったら位置も中心にリセット
+        if (scale === 1) {
+          pointX = 0;
+          pointY = 0;
         }
+        requestUpdate();
       }
     }, { passive: false });
 
     // タッチ終了
     container.addEventListener('touchend', (e) => {
       clearTimeout(longPressTimer);
+
       if (e.touches.length < 2) {
-        startPinchDist = 0;
+        startDist = 0;
       }
       if (e.touches.length === 0) {
         isDragging = false;
-        if (scale < 1) {
-          scale = 1;
-          pointX = 0;
-          pointY = 0;
-          updateTransform();
-        }
       }
     });
 
-    // IndexedDB & 保存処理
+    // IndexedDB 保存・読み込み
     const openDB = () => {
       return new Promise((resolve, reject) => {
         const request = indexedDB.open('FullImageAppDB', 1);
@@ -194,7 +199,7 @@ document.addEventListener('click', () => {
       scale = 1;
       pointX = 0;
       pointY = 0;
-      updateTransform();
+      requestUpdate();
 
       await saveImage(file);
       preview.src = URL.createObjectURL(file);
@@ -202,7 +207,7 @@ document.addEventListener('click', () => {
       placeholder.style.display = 'none';
     });
 
-    // PWA設定 (即時更新用キャッシュクリア処理付き)
+    // PWA Manifest
     const ICON_URL = "icon.png";
     const manifest = {
       name: "フォト表示",
@@ -235,3 +240,4 @@ document.addEventListener('click', () => {
   </script>
 </body>
 </html>
+
