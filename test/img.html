@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=no">
   <title>フォトビューア</title>
   <link rel="apple-touch-icon" href="icon.png">
   <style>
@@ -16,11 +16,12 @@
       height: 100%;
       background-color: #000000;
       overflow: hidden;
-      touch-action: none; /* ブラウザ標準のスクロールを無効化 */
+      touch-action: none;
       display: flex;
       align-items: center;
       justify-content: center;
       user-select: none;
+      -webkit-user-select: none;
     }
     #imageContainer {
       width: 100%;
@@ -53,7 +54,7 @@
 <body>
 
   <div id="imageContainer">
-    <div id="placeholder">画面をダブルタップして画像を選択</div>
+    <div id="placeholder">画面を長押しして画像を選択</div>
     <img id="preview" alt="">
   </div>
   <input type="file" id="fileInput" accept="image/*">
@@ -64,9 +65,7 @@
     const placeholder = document.getElementById('placeholder');
     const container = document.getElementById('imageContainer');
 
-    // -------------------------------------------------------------
-    // 拡大・縮小・移動 (Pinch & Pan) ロジック
-    // -------------------------------------------------------------
+    // 拡大・縮小・移動 (Pinch & Pan)
     let scale = 1;
     let pointX = 0;
     let pointY = 0;
@@ -75,13 +74,12 @@
     let isDragging = false;
     let startX = 0;
     let startY = 0;
-    let lastTap = 0;
+    let longPressTimer = null;
 
     const updateTransform = () => {
       preview.style.transform = `translate(${pointX}px, ${pointY}px) scale(${scale})`;
     };
 
-    // 2点間の距離計算
     const getDistance = (touches) => {
       return Math.hypot(
         touches[0].clientX - touches[1].clientX,
@@ -92,31 +90,27 @@
     // タッチ開始
     container.addEventListener('touchstart', (e) => {
       if (e.touches.length === 1) {
-        // ダブルタップ判定 (300ms以内の再タップ)
-        const currentTime = new Date().getTime();
-        const tapLength = currentTime - lastTap;
-        if (tapLength < 300 && tapLength > 0) {
+        // 長押し判定 (500ms判定)
+        longPressTimer = setTimeout(() => {
           fileInput.click();
-          e.preventDefault();
-          return;
-        }
-        lastTap = currentTime;
+        }, 500);
 
-        // ドラッグ開始
         isDragging = true;
         startX = e.touches[0].clientX - pointX;
         startY = e.touches[0].clientY - pointY;
       } else if (e.touches.length === 2) {
-        // ピンチズーム開始
+        clearTimeout(longPressTimer);
         isDragging = false;
         startPinchDist = getDistance(e.touches);
         startScale = scale;
       }
     }, { passive: false });
 
-    // タッチ移動
+    // タッチ移動 (指が動いたら長押し解除)
     container.addEventListener('touchmove', (e) => {
       e.preventDefault();
+      clearTimeout(longPressTimer);
+
       if (isDragging && e.touches.length === 1 && scale > 1) {
         pointX = e.touches[0].clientX - startX;
         pointY = e.touches[0].clientY - startY;
@@ -125,7 +119,6 @@
         const currentDist = getDistance(e.touches);
         if (startPinchDist > 0) {
           const newScale = startScale * (currentDist / startPinchDist);
-          // 拡大率の制限 (0.8倍〜8倍)
           scale = Math.min(Math.max(0.8, newScale), 8);
           updateTransform();
         }
@@ -134,12 +127,12 @@
 
     // タッチ終了
     container.addEventListener('touchend', (e) => {
+      clearTimeout(longPressTimer);
       if (e.touches.length < 2) {
         startPinchDist = 0;
       }
       if (e.touches.length === 0) {
         isDragging = false;
-        // 1倍未満に小さくなりすぎた場合は元に戻す
         if (scale < 1) {
           scale = 1;
           pointX = 0;
@@ -149,14 +142,7 @@
       }
     });
 
-    // PC用ダブルクリック対応
-    container.addEventListener('dblclick', () => {
-      fileInput.click();
-    });
-
-    // -------------------------------------------------------------
     // IndexedDB & 保存処理
-    // -------------------------------------------------------------
     const openDB = () => {
       return new Promise((resolve, reject) => {
         const request = indexedDB.open('FullImageAppDB', 1);
@@ -200,7 +186,6 @@
       const file = e.target.files[0];
       if (!file) return;
 
-      // 画像変更時にズームと位置をリセット
       scale = 1;
       pointX = 0;
       pointY = 0;
@@ -212,9 +197,7 @@
       placeholder.style.display = 'none';
     });
 
-    // -------------------------------------------------------------
-    // PWA設定
-    // -------------------------------------------------------------
+    // PWA設定 (即時更新用キャッシュクリア処理付き)
     const ICON_URL = "icon.png";
     const manifest = {
       name: "フォト表示",
@@ -238,6 +221,7 @@
     if ('serviceWorker' in navigator) {
       const swCode = `
         self.addEventListener('install', e => self.skipWaiting());
+        self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         self.addEventListener('fetch', e => e.respondWith(fetch(e.request)));
       `;
       const swBlob = new Blob([swCode], { type: 'application/javascript' });
