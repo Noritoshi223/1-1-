@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
   <title>フォトビューア</title>
   <link rel="apple-touch-icon" href="icon.png">
   <style>
@@ -16,143 +16,65 @@
       height: 100%;
       background-color: #000000;
       overflow: hidden;
-      touch-action: none; /* ブラウザ標準の挙動を完全に無効化 */
       display: flex;
       align-items: center;
       justify-content: center;
-      user-select: none;
-      -webkit-user-select: none;
-    }
-    #imageContainer {
-      width: 100%;
-      height: 100%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      overflow: hidden;
       position: relative;
     }
     #preview {
-      max-width: 100%;
-      max-height: 100%;
+      width: 100%;
+      height: 100%;
       object-fit: contain;
       display: none;
-      transform-origin: center center;
-      will-change: transform;
     }
     #placeholder {
       color: #555555;
       font-family: sans-serif;
       font-size: 14px;
-      pointer-events: none;
+      user-select: none;
     }
     #fileInput {
       display: none;
+    }
+    /* 右下の画像変更ボタン（半透明で目立たないデザイン） */
+    #changeBtn {
+      position: absolute;
+      bottom: 20px;
+      right: 20px;
+      background: rgba(255, 255, 255, 0.2);
+      color: #ffffff;
+      border: 1px solid rgba(255, 255, 255, 0.4);
+      backdrop-filter: blur(4px);
+      padding: 8px 14px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-family: sans-serif;
+      cursor: pointer;
+      user-select: none;
+      z-index: 10;
+      transition: opacity 0.3s;
+    }
+    #changeBtn:active {
+      background: rgba(255, 255, 255, 0.5);
     }
   </style>
 </head>
 <body>
 
-  <div id="imageContainer">
-    <div id="placeholder">画面を長押しして画像を選択</div>
-    <img id="preview" alt="">
-  </div>
+  <div id="placeholder">右下のボタンから画像を選択</div>
+  <img id="preview" alt="">
+  
+  <!-- 画像変更ボタン -->
+  <button id="changeBtn" onclick="document.getElementById('fileInput').click()">画像変更</button>
+  
   <input type="file" id="fileInput" accept="image/*">
 
   <script>
     const fileInput = document.getElementById('fileInput');
     const preview = document.getElementById('preview');
     const placeholder = document.getElementById('placeholder');
-    const container = document.getElementById('imageContainer');
 
-    // 変数管理
-    let scale = 1;
-    let pointX = 0;
-    let pointY = 0;
-    let startX = 0;
-    let startY = 0;
-    let startDist = 0;
-    let startScale = 1;
-    let isDragging = false;
-    let longPressTimer = null;
-
-    // 滑らかな描画更新 (requestAnimationFrame)
-    let ticking = false;
-    const requestUpdate = () => {
-      if (!ticking) {
-        requestAnimationFrame(() => {
-          preview.style.transform = `translate3d(${pointX}px, ${pointY}px, 0px) scale(${scale})`;
-          ticking = false;
-        });
-        ticking = true;
-      }
-    };
-
-    const getDistance = (t1, t2) => {
-      return Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
-    };
-
-    // タッチ開始
-    container.addEventListener('touchstart', (e) => {
-      clearTimeout(longPressTimer);
-
-      if (e.touches.length === 1) {
-        // 長押し（0.5秒）でファイル選択
-        longPressTimer = setTimeout(() => {
-          fileInput.click();
-        }, 500);
-
-        // 拡大時のみパン（ドラッグ）可能にする
-        if (scale > 1) {
-          isDragging = true;
-          startX = e.touches[0].clientX - pointX;
-          startY = e.touches[0].clientY - pointY;
-        }
-      } else if (e.touches.length === 2) {
-        // ピンチズーム開始
-        isDragging = false;
-        startDist = getDistance(e.touches[0], e.touches[1]);
-        startScale = scale;
-      }
-    }, { passive: false });
-
-    // タッチ移動
-    container.addEventListener('touchmove', (e) => {
-      e.preventDefault();
-      clearTimeout(longPressTimer); // 移動したら長押しをキャンセル
-
-      if (e.touches.length === 1 && isDragging && scale > 1) {
-        pointX = e.touches[0].clientX - startX;
-        pointY = e.touches[0].clientY - startY;
-        requestUpdate();
-      } else if (e.touches.length === 2 && startDist > 0) {
-        const currentDist = getDistance(e.touches[0], e.touches[1]);
-        const newScale = startScale * (currentDist / startDist);
-        // 拡大制限: 1倍〜8倍
-        scale = Math.min(Math.max(1, newScale), 8);
-        
-        // 1倍に戻ったら位置も中心にリセット
-        if (scale === 1) {
-          pointX = 0;
-          pointY = 0;
-        }
-        requestUpdate();
-      }
-    }, { passive: false });
-
-    // タッチ終了
-    container.addEventListener('touchend', (e) => {
-      clearTimeout(longPressTimer);
-
-      if (e.touches.length < 2) {
-        startDist = 0;
-      }
-      if (e.touches.length === 0) {
-        isDragging = false;
-      }
-    });
-
-    // IndexedDB 保存・読み込み
+    // IndexedDBの初期化
     const openDB = () => {
       return new Promise((resolve, reject) => {
         const request = indexedDB.open('FullImageAppDB', 1);
@@ -167,6 +89,7 @@
       });
     };
 
+    // 画像の保存
     const saveImage = async (blob) => {
       const db = await openDB();
       const tx = db.transaction('settings', 'readwrite');
@@ -174,6 +97,7 @@
       return tx.complete;
     };
 
+    // 画像の読み込み
     const loadImage = async () => {
       const db = await openDB();
       return new Promise((resolve) => {
@@ -183,6 +107,7 @@
       });
     };
 
+    // 保存済み画像の表示
     window.addEventListener('DOMContentLoaded', async () => {
       const savedBlob = await loadImage();
       if (savedBlob) {
@@ -192,14 +117,10 @@
       }
     });
 
+    // 画像変更
     fileInput.addEventListener('change', async (e) => {
       const file = e.target.files[0];
       if (!file) return;
-
-      scale = 1;
-      pointX = 0;
-      pointY = 0;
-      requestUpdate();
 
       await saveImage(file);
       preview.src = URL.createObjectURL(file);
@@ -207,7 +128,7 @@
       placeholder.style.display = 'none';
     });
 
-    // PWA Manifest
+    // PWA設定
     const ICON_URL = "icon.png";
     const manifest = {
       name: "フォト表示",
@@ -240,4 +161,3 @@
   </script>
 </body>
 </html>
-
