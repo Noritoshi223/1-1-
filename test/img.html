@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+  <title>フォトビューア</title>
+  <link rel="apple-touch-icon" href="icon.png">
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    html, body {
+      width: 100%;
+      height: 100%;
+      background-color: #000000;
+      overflow: hidden;
+      touch-action: none; /* ブラウザ標準のスクロールを無効化 */
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      user-select: none;
+    }
+    #imageContainer {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      position: relative;
+    }
+    #preview {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+      display: none;
+      transform-origin: center center;
+      will-change: transform;
+    }
+    #placeholder {
+      color: #444444;
+      font-family: sans-serif;
+      font-size: 14px;
+      pointer-events: none;
+    }
+    #fileInput {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="imageContainer">
+    <div id="placeholder">画面をダブルタップして画像を選択</div>
+    <img id="preview" alt="">
+  </div>
+  <input type="file" id="fileInput" accept="image/*">
+
+  <script>
+    const fileInput = document.getElementById('fileInput');
+    const preview = document.getElementById('preview');
+    const placeholder = document.getElementById('placeholder');
+    const container = document.getElementById('imageContainer');
+
+    // -------------------------------------------------------------
+    // 拡大・縮小・移動 (Pinch & Pan) ロジック
+    // -------------------------------------------------------------
+    let scale = 1;
+    let pointX = 0;
+    let pointY = 0;
+    let startPinchDist = 0;
+    let startScale = 1;
+    let isDragging = false;
+    let startX = 0;
+    let startY = 0;
+    let lastTap = 0;
+
+    const updateTransform = () => {
+      preview.style.transform = `translate(${pointX}px, ${pointY}px) scale(${scale})`;
+    };
+
+    // 2点間の距離計算
+    const getDistance = (touches) => {
+      return Math.hypot(
+        touches[0].clientX - touches[1].clientX,
+        touches[0].clientY - touches[1].clientY
+      );
+    };
+
+    // タッチ開始
+    container.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 1) {
+        // ダブルタップ判定 (300ms以内の再タップ)
+        const currentTime = new Date().getTime();
+        const tapLength = currentTime - lastTap;
+        if (tapLength < 300 && tapLength > 0) {
+          fileInput.click();
+          e.preventDefault();
+          return;
+        }
+        lastTap = currentTime;
+
+        // ドラッグ開始
+        isDragging = true;
+        startX = e.touches[0].clientX - pointX;
+        startY = e.touches[0].clientY - pointY;
+      } else if (e.touches.length === 2) {
+        // ピンチズーム開始
+        isDragging = false;
+        startPinchDist = getDistance(e.touches);
+        startScale = scale;
+      }
+    }, { passive: false });
+
+    // タッチ移動
+    container.addEventListener('touchmove', (e) => {
+      e.preventDefault();
+      if (isDragging && e.touches.length === 1 && scale > 1) {
+        pointX = e.touches[0].clientX - startX;
+        pointY = e.touches[0].clientY - startY;
+        updateTransform();
+      } else if (e.touches.length === 2) {
+        const currentDist = getDistance(e.touches);
+        if (startPinchDist > 0) {
+          const newScale = startScale * (currentDist / startPinchDist);
+          // 拡大率の制限 (0.8倍〜8倍)
+          scale = Math.min(Math.max(0.8, newScale), 8);
+          updateTransform();
+        }
+      }
+    }, { passive: false });
+
+    // タッチ終了
+    container.addEventListener('touchend', (e) => {
+      if (e.touches.length < 2) {
+        startPinchDist = 0;
+      }
+      if (e.touches.length === 0) {
+        isDragging = false;
+        // 1倍未満に小さくなりすぎた場合は元に戻す
+        if (scale < 1) {
+          scale = 1;
+          pointX = 0;
+          pointY = 0;
+          updateTransform();
+        }
+      }
+    });
+
+    // PC用ダブルクリック対応
+    container.addEventListener('dblclick', () => {
+      fileInput.click();
+    });
+
+    // -------------------------------------------------------------
+    // IndexedDB & 保存処理
+    // -------------------------------------------------------------
+    const openDB = () => {
+      return new Promise((resolve, reject) => {
+        const request = indexedDB.open('FullImageAppDB', 1);
+        request.onupgradeneeded = (e) => {
+          const db = e.target.result;
+          if (!db.objectStoreNames.contains('settings')) {
+            db.createObjectStore('settings');
+          }
+        };
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+    };
+
+    const saveImage = async (blob) => {
+      const db = await openDB();
+      const tx = db.transaction('settings', 'readwrite');
+      tx.objectStore('settings').put(blob, 'saved_image');
+      return tx.complete;
+    };
+
+    const loadImage = async () => {
+      const db = await openDB();
+      return new Promise((resolve) => {
+        const tx = db.transaction('settings', 'readonly');
+        const req = tx.objectStore('settings').get('saved_image');
+        req.onsuccess = () => resolve(req.result);
+      });
+    };
+
+    window.addEventListener('DOMContentLoaded', async () => {
+      const savedBlob = await loadImage();
+      if (savedBlob) {
+        preview.src = URL.createObjectURL(savedBlob);
+        preview.style.display = 'block';
+        placeholder.style.display = 'none';
+      }
+    });
+
+    fileInput.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      // 画像変更時にズームと位置をリセット
+      scale = 1;
+      pointX = 0;
+      pointY = 0;
+      updateTransform();
+
+      await saveImage(file);
+      preview.src = URL.createObjectURL(file);
+      preview.style.display = 'block';
+      placeholder.style.display = 'none';
+    });
+
+    // -------------------------------------------------------------
+    // PWA設定
+    // -------------------------------------------------------------
+    const ICON_URL = "icon.png";
+    const manifest = {
+      name: "フォト表示",
+      short_name: "フォト",
+      start_url: "./",
+      display: "standalone",
+      background_color: "#000000",
+      theme_color: "#000000",
+      icons: [
+        { src: ICON_URL, sizes: "192x192", type: "image/png" },
+        { src: ICON_URL, sizes: "512x512", type: "image/png" }
+      ]
+    };
+    
+    const manifestBlob = new Blob([JSON.stringify(manifest)], { type: 'application/json' });
+    const link = document.createElement('link');
+    link.rel = 'manifest';
+    link.href = URL.createObjectURL(manifestBlob);
+    document.head.appendChild(link);
+
+    if ('serviceWorker' in navigator) {
+      const swCode = `
+        self.addEventListener('install', e => self.skipWaiting());
+        self.addEventListener('fetch', e => e.respondWith(fetch(e.request)));
+      `;
+      const swBlob = new Blob([swCode], { type: 'application/javascript' });
+      navigator.serviceWorker.register(URL.createObjectURL(swBlob));
+    }
+  </script>
+</body>
+</html>
